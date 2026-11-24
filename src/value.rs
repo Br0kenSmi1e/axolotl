@@ -1,5 +1,5 @@
-use std::rc::Rc;
 use crate::term::TermRef;
+use std::rc::Rc;
 
 #[derive(Debug)]
 pub enum Value {
