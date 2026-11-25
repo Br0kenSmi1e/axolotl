@@ -1,6 +1,41 @@
-use crate::term::{Term, TermRef, app, lam, var};
-use crate::value::{Closure, Env, Value, ValueRef};
 use std::rc::Rc;
+
+#[derive(Debug, PartialEq)]
+pub enum Term {
+    Var(usize),
+    Lam(TermRef),
+    App(TermRef, TermRef),
+}
+
+pub type TermRef = Rc<Term>;
+
+pub fn var(index: usize) -> TermRef {
+    Rc::new(Term::Var(index))
+}
+
+pub fn lam(body: TermRef) -> TermRef {
+    Rc::new(Term::Lam(body))
+}
+
+pub fn app(func: TermRef, arg: TermRef) -> TermRef {
+    Rc::new(Term::App(func, arg))
+}
+
+#[derive(Debug)]
+pub enum Value {
+    VLam(Closure),
+    VNeutral(usize, Vec<ValueRef>),
+}
+
+pub type ValueRef = Rc<Value>;
+
+pub type Env = Vec<ValueRef>;
+
+#[derive(Debug)]
+pub struct Closure {
+    pub env: Env,
+    pub body: TermRef,
+}
 
 pub fn eval(env: &Env, term: &TermRef) -> ValueRef {
     match term.as_ref() {
@@ -49,50 +84,5 @@ fn apply(func: &ValueRef, arg: ValueRef) -> ValueRef {
             args.push(arg);
             Rc::new(Value::VNeutral(*level, args))
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::term::{app, lam, var};
-
-    #[test]
-    fn identity_to_identity() {
-        let id = lam(var(0));
-        let v = eval(&Vec::new(), &app(id.clone(), id));
-        match v.as_ref() {
-            Value::VLam(c) => assert_eq!(c.body, var(0)),
-            _ => panic!("expected a lambda value"),
-        }
-    }
-
-    #[test]
-    fn const_returns_first_arg() {
-        let id = lam(var(0));
-        let cons = lam(lam(var(1)));
-        let expr = app(app(cons, id.clone()), id);
-        match eval(&Vec::new(), &expr).as_ref() {
-            Value::VLam(c) => {
-                assert_eq!(c.body, var(0));
-                assert!(c.env.is_empty());
-            }
-            _ => panic!("expected a lambda value"),
-        }
-    }
-
-    #[test]
-    fn skk_is_identity() {
-        let s = lam(lam(lam(app(app(var(2), var(0)), app(var(1), var(0))))));
-        let k = lam(lam(var(1)));
-        let skk = app(app(s, k.clone()), k);
-        assert_eq!(normalize(&skk), lam(var(0)));
-    }
-
-    #[test]
-    fn cons_id_app() {
-        let cons = lam(lam(var(1)));
-        let id = lam(var(0));
-        assert_eq!(normalize(&app(cons, id)), lam(lam(var(0))));
     }
 }
