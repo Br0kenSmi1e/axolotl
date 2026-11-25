@@ -41,3 +41,30 @@ fn two_plus_two_is_four() {
         normalize(&church(4))
     );
 }
+
+// ==== Type System ====
+
+#[test]
+fn pi_roundtrip() {
+    let ty = pi(universe(0), pi(var(0), var(1)));
+    assert_eq!(normalize(&ty), ty);
+}
+
+#[test]
+fn type_level_beta_reduction() {
+    let id_ty = pi(universe(0), pi(var(0), var(1)));
+    let redex = apply(lambda(var(0)), id_ty.clone());
+    assert_eq!(normalize(&redex), id_ty);
+}
+
+#[test]
+fn dependent_pi_roundtrips() {
+    let ty = pi(
+        universe(0),
+        pi(
+            pi(var(0), universe(0)),
+            pi(var(1), pi(apply(var(1), var(0)), apply(var(2), var(1)))),
+        ),
+    );
+    assert_eq!(normalize(&ty), ty);
+}

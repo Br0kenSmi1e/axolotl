@@ -5,6 +5,8 @@ pub enum Term {
     Var(usize),
     Lambda(TermRef),
     Apply(TermRef, TermRef),
+    Pi(TermRef, TermRef),
+    Type(usize),
 }
 
 pub type TermRef = Rc<Term>;
@@ -21,9 +23,19 @@ pub fn apply(func: TermRef, arg: TermRef) -> TermRef {
     Rc::new(Term::Apply(func, arg))
 }
 
+pub fn pi(domain: TermRef, codomain: TermRef) -> TermRef {
+    Rc::new(Term::Pi(domain, codomain))
+}
+
+pub fn universe(level: usize) -> TermRef {
+    Rc::new(Term::Type(level))
+}
+
 #[derive(Debug)]
 pub enum Value {
     VLambda(Closure),
+    VPi(ValueRef, Closure),
+    VType(usize),
     VNeutral(usize, Vec<ValueRef>),
 }
 
@@ -48,16 +60,30 @@ pub fn eval(env: &Env, term: &TermRef) -> ValueRef {
             body: body.clone(),
         })),
         Term::Apply(func, arg) => call(&eval(env, func), eval(env, arg)),
+        Term::Pi(domain, codomain) => Rc::new(Value::VPi(
+            eval(env, domain),
+            Closure {
+                env: env.clone(),
+                body: codomain.clone(),
+            },
+        )),
+        Term::Type(level) => Rc::new(Value::VType(*level)),
     }
 }
 
 pub fn quote(depth: usize, value: &ValueRef) -> TermRef {
     match value.as_ref() {
         Value::VLambda(_) => {
-            let probe = Rc::new(Value::VNeutral(depth, Vec::new()));
-            let body_val = call(value, probe);
+            let fresh_var = Rc::new(Value::VNeutral(depth, Vec::new()));
+            let body_val = call(value, fresh_var);
             lambda(quote(depth + 1, &body_val))
         }
+        Value::VPi(domain, closure) => {
+            let fresh_var = Rc::new(Value::VNeutral(depth, Vec::new()));
+            let codomain_val = call_closure(&closure, fresh_var);
+            pi(quote(depth, domain), quote(depth + 1, &codomain_val))
+        }
+        Value::VType(level) => universe(*level),
         Value::VNeutral(level, args) => {
             let mut term = var(depth - 1 - *level);
             for arg in args {
@@ -74,15 +100,18 @@ pub fn normalize(term: &TermRef) -> TermRef {
 
 fn call(func: &ValueRef, arg: ValueRef) -> ValueRef {
     match func.as_ref() {
-        Value::VLambda(closure) => {
-            let mut env = closure.env.clone();
-            env.push(arg);
-            eval(&env, &closure.body)
-        }
+        Value::VLambda(closure) => call_closure(&closure, arg),
         Value::VNeutral(level, args) => {
             let mut args = args.clone();
             args.push(arg);
             Rc::new(Value::VNeutral(*level, args))
         }
+        other => panic!("cannot call a non-function value: {other:?}"),
     }
+}
+
+fn call_closure(closure: &Closure, arg: ValueRef) -> ValueRef {
+    let mut env = closure.env.clone();
+    env.push(arg);
+    eval(&env, &closure.body)
 }
