@@ -80,7 +80,7 @@ pub fn quote(depth: usize, value: &ValueRef) -> TermRef {
         }
         Value::VPi(domain, closure) => {
             let fresh_var = Rc::new(Value::VNeutral(depth, Vec::new()));
-            let codomain_val = call_closure(&closure, fresh_var);
+            let codomain_val = call_closure(&closure, fresh_var.clone());
             pi(quote(depth, domain), quote(depth + 1, &codomain_val))
         }
         Value::VType(level) => universe(*level),
@@ -147,19 +147,60 @@ pub fn infer(ctx: &Ctx, env: &Env, term: &TermRef) -> Result<ValueRef, TypeError
                     let arg_val = eval(env, arg);
                     Ok(call_closure(closure, arg_val))
                 }
-                _ => Err(TypeError::NotAFunction)
+                _ => Err(TypeError::NotAFunction),
             }
         }
         Term::Pi(domain, codomain) => {
-
+            let domain_uni = infer_universe(ctx, env, domain)?;
+            let domain_val = eval(env, domain);
+            let mut ctx = ctx.clone();
+            ctx.push(domain_val);
+            let mut env = env.clone();
+            env.push(fresh(env.len()));
+            let codomain_uni = infer_universe(&ctx, &env, codomain)?;
+            Ok(Rc::new(Value::VType(domain_uni.max(codomain_uni))))
         }
         Term::Type(level) => Ok(Rc::new(Value::VType(level + 1))),
     }
 }
 
-pub fn check(ctx: &Ctx, env: &Env, term: &TermRef, ty: &ValueRef) -> Result<(), TypeError> {}
+pub fn check(ctx: &Ctx, env: &Env, term: &TermRef, ty: &ValueRef) -> Result<(), TypeError> {
+    match (term.as_ref(), ty.as_ref()) {
+        (Term::Lambda(body), Value::VPi(domain, closure)) => {
+            let fresh_var = fresh(env.len());
+            let body_ty = call_closure(closure, fresh_var.clone());
+            let mut ctx = ctx.clone();
+            ctx.push(domain.clone());
+            let mut env = env.clone();
+            env.push(fresh_var);
+            check(&ctx, &env, body, &body_ty)
+        }
+        (Term::Lambda(_), _) => Err(TypeError::ExpectedFunction),
+        _ => {
+            let inferred = infer(ctx, env, term)?;
+            if conv(env.len(), &inferred, ty) {
+                Ok(())
+            } else {
+                Err(TypeError::Mismatch(
+                    quote(env.len(), &inferred),
+                    quote(env.len(), ty),
+                ))
+            }
+        }
+    }
+}
 
-pub fn conv(depth: usize, a: &ValueRef, b: &ValueRef) -> bool {}
+pub fn conv(depth: usize, a: &ValueRef, b: &ValueRef) -> bool {
+    quote(depth, a) == quote(depth, b)
+}
+
+pub fn certify(statement: &TermRef, proof: &TermRef) -> Result<(), TypeError> {
+    let ctx = Vec::new();
+    let env = Vec::new();
+    infer_universe(&ctx, &env, statement)?;
+    let statement_val = eval(&env, statement);
+    check(&ctx, &env, proof, &statement_val)
+}
 
 fn infer_universe(ctx: &Ctx, env: &Env, term: &TermRef) -> Result<usize, TypeError> {
     match infer(ctx, env, term)?.as_ref() {

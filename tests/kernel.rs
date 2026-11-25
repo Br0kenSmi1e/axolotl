@@ -68,3 +68,13 @@ fn dependent_pi_roundtrips() {
     );
     assert_eq!(normalize(&ty), ty);
 }
+
+// ==== Type Checker ====
+
+#[test]
+fn identity_certifies() {
+    let id_ty = pi(universe(0), pi(var(0), var(1)));
+    let id = lambda(lambda(var(0)));
+    assert!(certify(&id_ty, &id).is_ok());
+}
+
