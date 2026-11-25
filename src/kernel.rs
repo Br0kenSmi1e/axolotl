@@ -115,3 +115,55 @@ fn call_closure(closure: &Closure, arg: ValueRef) -> ValueRef {
     env.push(arg);
     eval(&env, &closure.body)
 }
+
+pub type Ctx = Vec<ValueRef>;
+
+#[derive(Debug, PartialEq)]
+pub enum TypeError {
+    UnboundVar,
+    NotAFunction,
+    ExpectedUniverse,
+    ExpectedFunction,
+    CannotInferLambda,
+    Mismatch(TermRef, TermRef),
+}
+
+fn fresh(level: usize) -> ValueRef {
+    Rc::new(Value::VNeutral(level, Vec::new()))
+}
+
+pub fn infer(ctx: &Ctx, env: &Env, term: &TermRef) -> Result<ValueRef, TypeError> {
+    match term.as_ref() {
+        Term::Var(i) => {
+            let idx = ctx.len() - 1 - *i;
+            ctx.get(idx).cloned().ok_or(TypeError::UnboundVar)
+        }
+        Term::Lambda(_) => Err(TypeError::CannotInferLambda),
+        Term::Apply(func, arg) => {
+            let func_ty = infer(ctx, env, func)?;
+            match func_ty.as_ref() {
+                Value::VPi(domain, closure) => {
+                    check(ctx, env, arg, domain)?;
+                    let arg_val = eval(env, arg);
+                    Ok(call_closure(closure, arg_val))
+                }
+                _ => Err(TypeError::NotAFunction)
+            }
+        }
+        Term::Pi(domain, codomain) => {
+
+        }
+        Term::Type(level) => Ok(Rc::new(Value::VType(level + 1))),
+    }
+}
+
+pub fn check(ctx: &Ctx, env: &Env, term: &TermRef, ty: &ValueRef) -> Result<(), TypeError> {}
+
+pub fn conv(depth: usize, a: &ValueRef, b: &ValueRef) -> bool {}
+
+fn infer_universe(ctx: &Ctx, env: &Env, term: &TermRef) -> Result<usize, TypeError> {
+    match infer(ctx, env, term)?.as_ref() {
+        Value::VType(level) => Ok(*level),
+        _ => Err(TypeError::ExpectedUniverse),
+    }
+}
