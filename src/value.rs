@@ -4,7 +4,7 @@ use std::rc::Rc;
 #[derive(Debug)]
 pub enum Value {
     VLam(Closure),
-    VNeutral(usize),
+    VNeutral(usize, Vec<ValueRef>),
 }
 
 pub type ValueRef = Rc<Value>;
