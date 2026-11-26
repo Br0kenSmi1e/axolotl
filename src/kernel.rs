@@ -7,6 +7,7 @@ pub enum Term {
     Apply(TermRef, TermRef),
     Pi(TermRef, TermRef),
     Type(usize),
+    Ann(TermRef, TermRef),
 }
 
 pub type TermRef = Rc<Term>;
@@ -29,6 +30,10 @@ pub fn pi(domain: TermRef, codomain: TermRef) -> TermRef {
 
 pub fn universe(level: usize) -> TermRef {
     Rc::new(Term::Type(level))
+}
+
+pub fn ann(term: TermRef, ty: TermRef) -> TermRef {
+    Rc::new(Term::Ann(term, ty))
 }
 
 #[derive(Debug)]
@@ -87,6 +92,7 @@ pub fn eval(env: &Env, term: &TermRef) -> ValueRef {
         Term::Apply(func, arg) => vapply(&eval(env, func), eval(env, arg)),
         Term::Pi(domain, codomain) => vpi(eval(env, domain), capture(env, codomain)),
         Term::Type(level) => vtype(*level),
+        Term::Ann(term, _) => eval(env, term),
     }
 }
 
@@ -151,6 +157,10 @@ pub fn infer(ctx: &Ctx, env: &Env, term: &TermRef) -> Result<ValueRef, TypeError
             Ok(vtype(domain_uni.max(codomain_uni)))
         }
         Term::Type(level) => Ok(vtype(level + 1)),
+        Term::Ann(term, ty) => infer_universe(ctx, env, ty).and_then(|_| {
+            let ty_val = eval(env, ty);
+            check(ctx, env, term, &ty_val).map(|_| ty_val)
+        }),
     }
 }
 
