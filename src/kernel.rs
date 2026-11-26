@@ -186,7 +186,39 @@ pub fn check(ctx: &Ctx, env: &Env, term: &TermRef, ty: &ValueRef) -> Result<(), 
 }
 
 pub fn conv(depth: usize, lhs: &ValueRef, rhs: &ValueRef) -> bool {
-    readback(depth, lhs) == readback(depth, rhs)
+    if Rc::ptr_eq(lhs, rhs) {
+        return true;
+    }
+    match (lhs.as_ref(), rhs.as_ref()) {
+        (Value::VLambda(lclosure), Value::VLambda(rclosure)) => {
+            let fresh_var = fresh(depth);
+            conv(
+                depth + 1,
+                &capply(lclosure, fresh_var.clone()),
+                &capply(rclosure, fresh_var),
+            )
+        }
+        (Value::VPi(ldom, lcod), Value::VPi(rdom, rcod)) => {
+            conv(depth, ldom, rdom) && {
+                let fresh_var = fresh(depth);
+                conv(
+                    depth + 1,
+                    &capply(lcod, fresh_var.clone()),
+                    &capply(rcod, fresh_var),
+                )
+            }
+        }
+        (Value::VType(lty), Value::VType(rty)) => lty == rty,
+        (Value::VNeutral(llv, lspine), Value::VNeutral(rlv, rspine)) => {
+            llv == rlv
+                && lspine.len() == rspine.len()
+                && lspine
+                    .iter()
+                    .zip(rspine.iter())
+                    .all(|(larg, rarg)| conv(depth, larg, rarg))
+        }
+        _ => false,
+    }
 }
 
 pub fn certify(statement: &TermRef, proof: &TermRef) -> Result<(), TypeError> {
