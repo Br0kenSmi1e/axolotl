@@ -77,4 +77,3 @@ fn identity_certifies() {
     let id = lambda(lambda(var(0)));
     assert!(certify(&id_ty, &id).is_ok());
 }
-

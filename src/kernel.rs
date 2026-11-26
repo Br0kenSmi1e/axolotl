@@ -49,68 +49,74 @@ pub struct Closure {
     pub body: TermRef,
 }
 
-pub fn eval(env: &Env, term: &TermRef) -> ValueRef {
-    match term.as_ref() {
-        Term::Var(i) => {
-            let idx = env.len() - 1 - *i;
-            env[idx].clone()
-        }
-        Term::Lambda(body) => Rc::new(Value::VLambda(Closure {
-            env: env.clone(),
-            body: body.clone(),
-        })),
-        Term::Apply(func, arg) => call(&eval(env, func), eval(env, arg)),
-        Term::Pi(domain, codomain) => Rc::new(Value::VPi(
-            eval(env, domain),
-            Closure {
-                env: env.clone(),
-                body: codomain.clone(),
-            },
-        )),
-        Term::Type(level) => Rc::new(Value::VType(*level)),
-    }
+pub fn vlambda(closure: Closure) -> ValueRef {
+    Rc::new(Value::VLambda(closure))
 }
 
-pub fn quote(depth: usize, value: &ValueRef) -> TermRef {
-    match value.as_ref() {
-        Value::VLambda(_) => {
-            let fresh_var = Rc::new(Value::VNeutral(depth, Vec::new()));
-            let body_val = call(value, fresh_var);
-            lambda(quote(depth + 1, &body_val))
-        }
-        Value::VPi(domain, closure) => {
-            let fresh_var = Rc::new(Value::VNeutral(depth, Vec::new()));
-            let codomain_val = call_closure(&closure, fresh_var.clone());
-            pi(quote(depth, domain), quote(depth + 1, &codomain_val))
-        }
-        Value::VType(level) => universe(*level),
-        Value::VNeutral(level, args) => {
-            let mut term = var(depth - 1 - *level);
-            for arg in args {
-                term = apply(term, quote(depth, arg));
-            }
-            term
-        }
+pub fn vpi(domain: ValueRef, codomain: Closure) -> ValueRef {
+    Rc::new(Value::VPi(domain, codomain))
+}
+
+pub fn vtype(level: usize) -> ValueRef {
+    Rc::new(Value::VType(level))
+}
+
+pub fn vneutral(level: usize, spine: Vec<ValueRef>) -> ValueRef {
+    Rc::new(Value::VNeutral(level, spine))
+}
+
+pub fn fresh(level: usize) -> ValueRef {
+    vneutral(level, Vec::new())
+}
+
+pub fn capture(env: &Env, body: &TermRef) -> Closure {
+    Closure {
+        env: env.clone(),
+        body: body.clone(),
     }
 }
 
 pub fn normalize(term: &TermRef) -> TermRef {
-    quote(0, &eval(&Vec::new(), term))
+    readback(0, &eval(&Vec::new(), term))
 }
 
-fn call(func: &ValueRef, arg: ValueRef) -> ValueRef {
+pub fn eval(env: &Env, term: &TermRef) -> ValueRef {
+    match term.as_ref() {
+        Term::Var(i) => env[env.len() - 1 - *i].clone(),
+        Term::Lambda(body) => vlambda(capture(env, body)),
+        Term::Apply(func, arg) => vapply(&eval(env, func), eval(env, arg)),
+        Term::Pi(domain, codomain) => vpi(eval(env, domain), capture(env, codomain)),
+        Term::Type(level) => vtype(*level),
+    }
+}
+
+pub fn readback(depth: usize, value: &ValueRef) -> TermRef {
+    match value.as_ref() {
+        Value::VLambda(closure) => lambda(readback(depth + 1, &capply(closure, fresh(depth)))),
+        Value::VPi(domain, codomain) => pi(
+            readback(depth, domain),
+            readback(depth + 1, &capply(codomain, fresh(depth))),
+        ),
+        Value::VType(level) => universe(*level),
+        Value::VNeutral(level, spine) => spine.iter().fold(var(depth - 1 - *level), |term, arg| {
+            apply(term, readback(depth, arg))
+        }),
+    }
+}
+
+fn vapply(func: &ValueRef, arg: ValueRef) -> ValueRef {
     match func.as_ref() {
-        Value::VLambda(closure) => call_closure(&closure, arg),
-        Value::VNeutral(level, args) => {
-            let mut args = args.clone();
-            args.push(arg);
-            Rc::new(Value::VNeutral(*level, args))
+        Value::VLambda(closure) => capply(&closure, arg),
+        Value::VNeutral(level, spine) => {
+            let mut spine = spine.clone();
+            spine.push(arg);
+            vneutral(*level, spine)
         }
         other => panic!("cannot call a non-function value: {other:?}"),
     }
 }
 
-fn call_closure(closure: &Closure, arg: ValueRef) -> ValueRef {
+fn capply(closure: &Closure, arg: ValueRef) -> ValueRef {
     let mut env = closure.env.clone();
     env.push(arg);
     eval(&env, &closure.body)
@@ -128,10 +134,6 @@ pub enum TypeError {
     Mismatch(TermRef, TermRef),
 }
 
-fn fresh(level: usize) -> ValueRef {
-    Rc::new(Value::VNeutral(level, Vec::new()))
-}
-
 pub fn infer(ctx: &Ctx, env: &Env, term: &TermRef) -> Result<ValueRef, TypeError> {
     match term.as_ref() {
         Term::Var(i) => {
@@ -145,7 +147,7 @@ pub fn infer(ctx: &Ctx, env: &Env, term: &TermRef) -> Result<ValueRef, TypeError
                 Value::VPi(domain, closure) => {
                     check(ctx, env, arg, domain)?;
                     let arg_val = eval(env, arg);
-                    Ok(call_closure(closure, arg_val))
+                    Ok(capply(closure, arg_val))
                 }
                 _ => Err(TypeError::NotAFunction),
             }
@@ -168,7 +170,7 @@ pub fn check(ctx: &Ctx, env: &Env, term: &TermRef, ty: &ValueRef) -> Result<(), 
     match (term.as_ref(), ty.as_ref()) {
         (Term::Lambda(body), Value::VPi(domain, closure)) => {
             let fresh_var = fresh(env.len());
-            let body_ty = call_closure(closure, fresh_var.clone());
+            let body_ty = capply(closure, fresh_var.clone());
             let mut ctx = ctx.clone();
             ctx.push(domain.clone());
             let mut env = env.clone();
@@ -182,8 +184,8 @@ pub fn check(ctx: &Ctx, env: &Env, term: &TermRef, ty: &ValueRef) -> Result<(), 
                 Ok(())
             } else {
                 Err(TypeError::Mismatch(
-                    quote(env.len(), &inferred),
-                    quote(env.len(), ty),
+                    readback(env.len(), &inferred),
+                    readback(env.len(), ty),
                 ))
             }
         }
@@ -191,7 +193,7 @@ pub fn check(ctx: &Ctx, env: &Env, term: &TermRef, ty: &ValueRef) -> Result<(), 
 }
 
 pub fn conv(depth: usize, a: &ValueRef, b: &ValueRef) -> bool {
-    quote(depth, a) == quote(depth, b)
+    readback(depth, a) == readback(depth, b)
 }
 
 pub fn certify(statement: &TermRef, proof: &TermRef) -> Result<(), TypeError> {
