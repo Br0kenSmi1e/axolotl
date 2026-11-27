@@ -1,4 +1,7 @@
-use crate::kernel::{TermRef, ann, apply, lambda, pi, universe, var};
+use crate::kernel::TermRef;
+use crate::kernel::{Ctx, Env, TypeError};
+use crate::kernel::{ann, apply, lambda, pi, universe, var};
+use crate::kernel::{certify_with_ctx, eval, fresh, infer_universe};
 
 #[derive(Debug)]
 pub enum STerm {
@@ -47,7 +50,7 @@ pub fn resolve(scope: &mut Vec<String>, sterm: &STerm) -> Result<TermRef, Resolv
         STerm::SVar(name) => scope
             .iter()
             .rposition(|n| n == name)
-            .map(var)
+            .map(|pos| var(scope.len() - 1 - pos))
             .ok_or_else(|| ResolveError::UnknownName(name.clone())),
         STerm::SLambda(name, body) => {
             scope.push(name.clone());
@@ -66,4 +69,62 @@ pub fn resolve(scope: &mut Vec<String>, sterm: &STerm) -> Result<TermRef, Resolv
         STerm::SType(level) => Ok(universe(*level)),
         STerm::SAnn(term, ty) => Ok(ann(resolve(scope, term)?, resolve(scope, ty)?)),
     }
+}
+
+#[derive(Debug)]
+pub enum FrontendError {
+    Resolve(ResolveError),
+    Type(TypeError),
+}
+
+impl From<ResolveError> for FrontendError {
+    fn from(e: ResolveError) -> Self {
+        FrontendError::Resolve(e)
+    }
+}
+
+impl From<TypeError> for FrontendError {
+    fn from(e: TypeError) -> Self {
+        FrontendError::Type(e)
+    }
+}
+
+pub struct Globals {
+    pub scope: Vec<String>,
+    pub ctx: Ctx,
+    pub env: Env,
+}
+
+pub fn drive(decls: &[SDecl]) -> Result<Globals, FrontendError> {
+    let mut scope: Vec<String> = Vec::new();
+    let mut ctx: Ctx = Vec::new();
+    let mut env: Env = Vec::new();
+    for decl in decls {
+        match decl {
+            SDecl::Axiom { name, ty } => {
+                let ty = resolve(&mut scope, &ty)?;
+                infer_universe(&ctx, &env, &ty)?;
+                scope.push(name.to_string());
+                ctx.push(eval(&env, &ty));
+                env.push(fresh(env.len()));
+            }
+            SDecl::Def { name, ty, body } => {
+                let ty = resolve(&mut scope, &ty)?;
+                let body = resolve(&mut scope, &body)?;
+                certify_with_ctx(&ctx, &env, &ty, &body)?;
+                scope.push(name.to_string());
+                ctx.push(eval(&env, &ty));
+                env.push(eval(&env, &body));
+            }
+            SDecl::Thm { name, ty, proof } => {
+                let ty = resolve(&mut scope, &ty)?;
+                let proof = resolve(&mut scope, &proof)?;
+                certify_with_ctx(&ctx, &env, &ty, &proof)?;
+                scope.push(name.to_string());
+                ctx.push(eval(&env, &ty));
+                env.push(fresh(env.len()));
+            }
+        }
+    }
+    Ok(Globals { scope, ctx, env })
 }

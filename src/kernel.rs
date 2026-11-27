@@ -221,14 +221,21 @@ pub fn conv(depth: usize, lhs: &ValueRef, rhs: &ValueRef) -> bool {
     }
 }
 
-pub fn certify(statement: &TermRef, proof: &TermRef) -> Result<(), TypeError> {
-    let ctx = Vec::new();
-    let env = Vec::new();
+pub fn certify_with_ctx(
+    ctx: &Ctx,
+    env: &Env,
+    statement: &TermRef,
+    proof: &TermRef,
+) -> Result<(), TypeError> {
     infer_universe(&ctx, &env, statement)
         .and_then(|_| check(&ctx, &env, proof, &eval(&env, statement)))
 }
 
-fn infer_universe(ctx: &Ctx, env: &Env, term: &TermRef) -> Result<usize, TypeError> {
+pub fn certify(statement: &TermRef, proof: &TermRef) -> Result<(), TypeError> {
+    certify_with_ctx(&Vec::new(), &Vec::new(), statement, proof)
+}
+
+pub fn infer_universe(ctx: &Ctx, env: &Env, term: &TermRef) -> Result<usize, TypeError> {
     match infer(ctx, env, term)?.as_ref() {
         Value::VType(level) => Ok(*level),
         _ => Err(TypeError::ExpectedUniverse),
