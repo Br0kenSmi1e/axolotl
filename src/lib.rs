@@ -1,2 +1,2 @@
-pub mod frontend;
+pub mod elab;
 pub mod kernel;

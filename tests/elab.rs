@@ -1,4 +1,4 @@
-use axolotl::frontend::*;
+use axolotl::elab::*;
 use axolotl::kernel::*;
 
 #[test]
